@@ -1,0 +1,6 @@
+sqlalchemy
+aiogram
+bcrypt
+pydantic
+pydantic_settings
+aiocryptopay
