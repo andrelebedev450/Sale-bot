@@ -88,7 +88,7 @@ async def create_ticket_callback(callback_query: types.CallbackQuery):
 
 @dp.callback_query(F.data == 'my_tickets')
 async def my_tickets_callback(callback_query: types.CallbackQuery):
-    await callback_query.message.edit_text("Здесь будут ваши обращения.")
+    await callback_query.message.edit_text("📩 *Связаться  ›  Все обращения*\n\n Здесь будут ваши обращения.", parse_mode="Markdown")
 
 @dp.callback_query(F.data == 'back_to_support')
 async def back_to_support_callback(callback_query: types.CallbackQuery):
@@ -103,3 +103,113 @@ async def back_to_support_callback(callback_query: types.CallbackQuery):
     )
     
     await callback_query.message.edit_text(support_text, reply_markup=keyboard.as_markup())
+
+async def edit_message_to_previous_state(callback_query: types.CallbackQuery, previous_text: str, previous_keyboard: InlineKeyboardBuilder):
+    await callback_query.message.delete()
+    
+    await bot.send_message(callback_query.message.chat.id, previous_text, reply_markup=previous_keyboard.as_markup(), parse_mode="Markdown")
+
+@dp.message(F.text == "🎁 ПОЛУЧИ БОНУСЫ 🎁")
+async def get_bonuses(message: types.Message):
+    await message.answer("💰")
+    
+    keyboard = InlineKeyboardBuilder()
+    keyboard.row(
+        types.InlineKeyboardButton(text="⚡🎁 Розыгрыши (N) 🎁⚡", callback_data="lotteries")
+    )
+    keyboard.row(
+        types.InlineKeyboardButton(text="Акции и бонусы (N)", callback_data="promotions")
+    )
+    keyboard.row(
+        types.InlineKeyboardButton(text="Деньги за друзей", callback_data="referral_money")
+    )
+    
+    await message.answer("🎁 Бонусы, розыгрыши и задания", reply_markup=keyboard.as_markup())
+
+@dp.callback_query(F.data == 'lotteries')
+async def lotteries_callback(callback_query: types.CallbackQuery):
+    message_text = "🎰 *Розыгрыши*\n\nВыберите розыгрыш:"
+    
+    keyboard = InlineKeyboardBuilder()
+    keyboard.row(
+        types.InlineKeyboardButton(text="🎫Мои билеты", callback_data="my_tickets_lotteries")
+    )
+    keyboard.row(
+        types.InlineKeyboardButton(text="< Назад", callback_data="back_to_bonuses")
+    )
+    
+    await callback_query.message.edit_text(message_text, reply_markup=keyboard.as_markup(), parse_mode="Markdown")
+
+@dp.callback_query(F.data == 'promotions')
+async def promotions_callback(callback_query: types.CallbackQuery):
+    message_text = "🎁 *Акции и бонусы*\n\nВыберите нужный пункт:"
+    
+    keyboard = InlineKeyboardBuilder()
+    keyboard.row(
+        types.InlineKeyboardButton(text="< Назад", callback_data="back_to_bonuses")
+    )
+    
+    await callback_query.message.edit_text(message_text, reply_markup=keyboard.as_markup(), parse_mode="Markdown")
+
+@dp.callback_query(F.data == 'referral_money')
+async def referral_money_callback(callback_query: types.CallbackQuery):
+    message_text = (
+        "💸 *Деньги за друзей*\n\n"
+        "Приглашено: *0*\n"
+        "Баланс: *0₽*\n\n"
+        "Получай *10₽ за одного* приглашенного друга\n\n"
+        "Ссылка для друга:\n"
+        "[https://t.me/this_bot?start=50ANa9toFQ](https://t.me/this_bot?start=50ANa9toFQ)"
+    )
+    
+    keyboard = InlineKeyboardBuilder()
+    keyboard.row(
+        types.InlineKeyboardButton(text="Вывести средства", callback_data="withdraw_funds")
+    )
+    keyboard.row(
+        types.InlineKeyboardButton(text="< Назад", callback_data="back_to_bonuses")
+    )
+    
+    await callback_query.message.edit_text(message_text, reply_markup=keyboard.as_markup(), parse_mode="Markdown")
+
+@dp.callback_query(F.data == 'withdraw_funds')
+async def withdraw_funds_callback(callback_query: types.CallbackQuery):
+    await callback_query.message.edit_text("Здесь можно вывести средства.", parse_mode="Markdown")
+
+@dp.callback_query(F.data == 'back_to_bonuses')
+async def back_to_bonuses_callback(callback_query: types.CallbackQuery):
+    previous_text = "🎁 Бонусы, розыгрыши и задания"
+    keyboard = InlineKeyboardBuilder()
+    keyboard.row(
+        types.InlineKeyboardButton(text="⚡🎁 Розыгрыши (N) 🎁⚡", callback_data="lotteries")
+    )
+    keyboard.row(
+        types.InlineKeyboardButton(text="Акции и бонусы (N)", callback_data="promotions")
+    )
+    keyboard.row(
+        types.InlineKeyboardButton(text="Деньги за друзей", callback_data="referral_money")
+    )
+    await edit_message_to_previous_state(callback_query, previous_text, keyboard)
+
+@dp.callback_query(F.data == 'my_tickets_lotteries')
+async def my_tickets_lotteries_callback(callback_query: types.CallbackQuery):
+    message_text = "🎫 *Мои билеты*\n\nВсего билетов: *0*"
+    
+    keyboard = InlineKeyboardBuilder()
+    keyboard.row(
+        types.InlineKeyboardButton(text="< Назад", callback_data="back_to_lotteries")
+    )
+    
+    await callback_query.message.edit_text(message_text, reply_markup=keyboard.as_markup(), parse_mode="Markdown")
+
+@dp.callback_query(F.data == 'back_to_lotteries')
+async def back_to_lotteries_callback(callback_query: types.CallbackQuery):
+    previous_text = "🎰 *Розыгрыши*\n\nВыберите розыгрыш:"
+    keyboard = InlineKeyboardBuilder()
+    keyboard.row(
+        types.InlineKeyboardButton(text="🎫Мои билеты", callback_data="my_tickets_lotteries")
+    )
+    keyboard.row(
+        types.InlineKeyboardButton(text="< Назад", callback_data="back_to_bonuses")
+    )
+    await edit_message_to_previous_state(callback_query, previous_text, keyboard)
