@@ -22,7 +22,7 @@ async def send_welcome(message: types.Message):
         photo = FSInputFile(photo_path)
         await message.answer_photo(photo, caption=welcome_text, parse_mode='Markdown', reply_markup=menu_keyboard)
     else:
-        await message.answer("Изображение не найдено.")
+        pass
 
     db = next(get_db())
     user = db.query(User).filter(User.telegram_id == message.from_user.id).first()
