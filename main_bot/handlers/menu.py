@@ -149,6 +149,17 @@ async def lotteries_callback(callback_query: types.CallbackQuery):
     
     await callback_query.message.edit_text(message_text, reply_markup=keyboard.as_markup(), parse_mode="Markdown")
 
+@dp.callback_query(F.data == 'my_tickets_lotteries')
+async def my_tickets_lotteries_callback(callback_query: types.CallbackQuery):
+    message_text = "🎫 *Мои билеты*\n\nВсего билетов: *0*"
+    
+    keyboard = InlineKeyboardBuilder()
+    keyboard.row(
+        types.InlineKeyboardButton(text="< Назад", callback_data="back_to_bonuses:get_bonuses:True")
+    )
+    
+    await callback_query.message.edit_text(message_text, reply_markup=keyboard.as_markup(), parse_mode="Markdown")
+
 @dp.callback_query(F.data == 'promotions')
 async def promotions_callback(callback_query: types.CallbackQuery):
     message_text = "🎁 *Акции и бонусы*\n\nВыберите нужный пункт:"
@@ -192,17 +203,6 @@ async def universal_back_callback(callback_query: types.CallbackQuery):
     delete_previous_message = data[2] == 'True'
     function = globals()[function_name]
     await edit_message_to_previous_state(callback_query, function, delete_previous_message)
-
-@dp.callback_query(F.data == 'my_tickets_lotteries')
-async def my_tickets_lotteries_callback(callback_query: types.CallbackQuery):
-    message_text = "🎫 *Мои билеты*\n\nВсего билетов: *0*"
-    
-    keyboard = InlineKeyboardBuilder()
-    keyboard.row(
-        types.InlineKeyboardButton(text="< Назад", callback_data="back_to_lotteries:lotteries_callback:True")
-    )
-    
-    await callback_query.message.edit_text(message_text, reply_markup=keyboard.as_markup(), parse_mode="Markdown")
 
 @dp.message(F.text == "Каталог товаров 🛍️")
 async def show_catalog(message: types.Message):
