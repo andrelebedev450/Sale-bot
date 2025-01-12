@@ -5,8 +5,19 @@ from aiogram.filters.command import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardMarkup, KeyboardButton
 from bot import dp, bot, assets_dir
 from database.db_session import get_db
-from database.models import User
+from database.models import *
 from sqlalchemy.orm import Session
+from aiogram.fsm.context import FSMContext
+from states.states import SupportTicketStates
+
+TICKETS_PER_PAGE = 5  # Define the number of tickets per page
+
+TOPIC_MAP = {
+    "order": "Проблема с заказом",
+    "replenish": "Проблема с пополнением",
+    "payment": "Проблема с оплатой",
+    "product": "Вопросы по товару"
+}
 
 async def edit_message_to_previous_state(callback_query: types.CallbackQuery, previous_state_function, delete_previous_message=False):
     await callback_query.message.delete()
@@ -35,7 +46,7 @@ async def show_profile(message: types.Message, user: types.User = None):
             f"Основной баланс: *{user.balance}₽*\n"
             f"Партнерский баланс: *{user.partner_balance}₽*\n\n"
             f"*Статистика*\n"
-            f"Всего покупок: *{user.total_purchases}*"
+            f"Всего покупок: *{user.total_purchases}*\n\n"
         )
         
         keyboard = InlineKeyboardBuilder()
@@ -57,24 +68,30 @@ async def my_orders_callback(callback_query: types.CallbackQuery):
 
 @dp.callback_query(F.data == 'referral_program')
 async def referral_program_callback(callback_query: types.CallbackQuery):
-    message_text = (
-        "💸 *Деньги за друзей*\n\n"
-        "Приглашено: *0*\n"
-        "Баланс: *0₽*\n\n"
-        "Получай *10₽ за одного* приглашенного друга\n\n"
-        "Ссылка для друга:\n"
-        "[https://t.me/this_bot?start=50ANa9toFQ](https://t.me/this_bot?start=50ANa9toFQ)"
-    )
-    
-    keyboard = InlineKeyboardBuilder()
-    keyboard.row(
-        types.InlineKeyboardButton(text="Вывести средства", callback_data="withdraw_funds")
-    )
-    keyboard.row(
-        types.InlineKeyboardButton(text="< Назад", callback_data="back_to_profile:show_profile:True")
-    )
-    
-    await callback_query.message.edit_text(message_text, reply_markup=keyboard.as_markup(), parse_mode="Markdown")
+    db = next(get_db())
+    user = db.query(User).filter(User.telegram_id == callback_query.from_user.id).first()
+    if user:
+        bot_info = await bot.get_me()
+        bot_username = bot_info.username
+        referral_link = f"https://t.me/{bot_username}?start={user.referral_code}"
+        message_text = (
+            f"💸 *Деньги за друзей*\n\n"
+            f"Приглашено: *{user.invited_count}*\n"
+            f"Баланс: *{user.total_earned}₽*\n\n"
+            f"Получай *10₽ за одного* приглашенного друга\n\n"
+            f"Ссылка для друга:\n"
+            f"[{referral_link}]({referral_link})"
+        )
+        
+        keyboard = InlineKeyboardBuilder()
+        keyboard.row(
+            types.InlineKeyboardButton(text="Вывести средства", callback_data="withdraw_funds")
+        )
+        keyboard.row(
+            types.InlineKeyboardButton(text="< Назад", callback_data="back_to_profile:show_profile:True")
+        )
+        
+        await callback_query.message.edit_text(message_text, reply_markup=keyboard.as_markup(), parse_mode="Markdown")
 
 @dp.message(F.text == "Связаться 📞")
 async def contact_support(message: types.Message):
@@ -115,8 +132,126 @@ async def create_ticket_callback(callback_query: types.CallbackQuery):
     await callback_query.message.edit_text(message_text, reply_markup=keyboard.as_markup(), parse_mode="Markdown")
 
 @dp.callback_query(F.data == 'my_tickets')
+async def my_tickets_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    await state.update_data(page=1)
+    await show_tickets(callback_query.message, callback_query.from_user.id, 1)
+
+async def show_tickets(message: types.Message, user_id: int, page: int):
+    db = next(get_db())
+    user = db.query(User).filter(User.telegram_id == user_id).first()
+    if user:
+        tickets = db.query(SupportTicket).filter(SupportTicket.user_id == user.id).order_by(SupportTicket.created_at.desc()).all()
+        total_pages = (len(tickets) + TICKETS_PER_PAGE - 1) // TICKETS_PER_PAGE
+        start = (page - 1) * TICKETS_PER_PAGE
+        end = start + TICKETS_PER_PAGE
+        tickets_page = tickets[start:end]
+
+        message_text = "📩 *Связаться  ›  Все обращения*\n\nЗдесь вы можете управлять обращениями."
+        keyboard = InlineKeyboardBuilder()
+        
+        for ticket in tickets_page:
+            keyboard.row(types.InlineKeyboardButton(text=f"{ticket.topic} ({ticket.status})", callback_data=f"ticket_{ticket.id}"))
+        
+        keyboard.row(
+            types.InlineKeyboardButton(text="⬅️", callback_data="prev_page"),
+            types.InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="current_page"),
+            types.InlineKeyboardButton(text="➡️", callback_data="next_page")
+        )
+        keyboard.row(
+            types.InlineKeyboardButton(text="< Назад", callback_data="back_to_support:contact_support:True")
+        )
+        
+        await message.edit_text(message_text, reply_markup=keyboard.as_markup(), parse_mode="Markdown")
+
+@dp.callback_query(F.data == 'prev_page')
+async def prev_page_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    page = data.get("page", 1)
+    if page > 1:
+        page -= 1
+        await state.update_data(page=page)
+        await show_tickets(callback_query.message, callback_query.from_user.id, page)
+
+@dp.callback_query(F.data == 'next_page')
+async def next_page_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    page = data.get("page", 1)
+    db = next(get_db())
+    user = db.query(User).filter(User.telegram_id == callback_query.from_user.id).first()
+    if user:
+        total_tickets = db.query(SupportTicket).filter(SupportTicket.user_id == user.id).count()
+        total_pages = (total_tickets + TICKETS_PER_PAGE - 1) // TICKETS_PER_PAGE
+        if page < total_pages:
+            page += 1
+            await state.update_data(page=page)
+            await show_tickets(callback_query.message, callback_query.from_user.id, page)
+
+@dp.callback_query(F.data.startswith('ticket_'))
+async def ticket_details_callback(callback_query: types.CallbackQuery):
+    ticket_id = int(callback_query.data.split('_')[1])
+    db = next(get_db())
+    ticket = db.query(SupportTicket).filter(SupportTicket.id == ticket_id).first()
+    if ticket:
+        message_text = (
+            f"📩 *Обращение*\n\n"
+            f"Тема: {ticket.topic}\n"
+            f"Текст: {ticket.message}\n"
+            f"Статус: {ticket.status}"
+        )
+        
+        keyboard = InlineKeyboardBuilder()
+        keyboard.row(
+            types.InlineKeyboardButton(text="< Назад", callback_data="back_to_tickets")
+        )
+        
+        await callback_query.message.edit_text(message_text, reply_markup=keyboard.as_markup(), parse_mode="Markdown")
+
+@dp.callback_query(F.data == 'back_to_tickets')
+async def back_to_tickets_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    page = data.get("page", 1)
+    await show_tickets(callback_query.message, callback_query.from_user.id, page)
+
+@dp.callback_query(F.data == 'my_tickets')
 async def my_tickets_callback(callback_query: types.CallbackQuery):
     await callback_query.message.edit_text("📩 *Связаться  ›  Все обращения*\n\n Здесь будут ваши обращения.", parse_mode="Markdown")
+
+@dp.callback_query(F.data.startswith('issue_'))
+async def issue_topic_callback(callback_query: types.CallbackQuery, state: FSMContext):
+    topic_code = callback_query.data.split('_')[1]
+    topic = TOPIC_MAP.get(topic_code, topic_code)
+    message_text = (
+        f"📩 *Связаться  ›  Создание обращения*\n\n"
+        f"Тема: {topic}\n\n"
+        f"Пришлите в ответ текст вашего обращения:"
+    )
+    
+    keyboard = InlineKeyboardBuilder()
+    keyboard.row(
+        types.InlineKeyboardButton(text="< Назад", callback_data="back_to_support:contact_support:True")
+    )
+    
+    await callback_query.message.edit_text(message_text, reply_markup=keyboard.as_markup(), parse_mode="Markdown")
+    await state.update_data(topic=topic)
+    await state.set_state(SupportTicketStates.waiting_for_message)
+
+@dp.message(SupportTicketStates.waiting_for_message)
+async def handle_support_message(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    topic = data.get("topic")
+    if topic:
+        db = next(get_db())
+        user = db.query(User).filter(User.telegram_id == message.from_user.id).first()
+        if user:
+            ticket = SupportTicket(
+                user_id=user.id,
+                topic=topic,
+                message=message.text
+            )
+            db.add(ticket)
+            db.commit()
+            await message.answer("Ваше обращение было успешно создано.")
+        await state.clear()
 
 @dp.message(F.text == "🎁 ПОЛУЧИ БОНУСЫ 🎁")
 async def get_bonuses(message: types.Message):
@@ -173,36 +308,43 @@ async def promotions_callback(callback_query: types.CallbackQuery):
 
 @dp.callback_query(F.data == 'referral_money')
 async def referral_money_callback(callback_query: types.CallbackQuery):
-    message_text = (
-        "💸 *Деньги за друзей*\n\n"
-        "Приглашено: *0*\n"
-        "Баланс: *0₽*\n\n"
-        "Получай *10₽ за одного* приглашенного друга\n\n"
-        "Ссылка для друга:\n"
-        "[https://t.me/this_bot?start=50ANa9toFQ](https://t.me/this_bot?start=50ANa9toFQ)"
-    )
-    
-    keyboard = InlineKeyboardBuilder()
-    keyboard.row(
-        types.InlineKeyboardButton(text="Вывести средства", callback_data="withdraw_funds")
-    )
-    keyboard.row(
-        types.InlineKeyboardButton(text="< Назад", callback_data="back_to_bonuses:get_bonuses:True")
-    )
-    
-    await callback_query.message.edit_text(message_text, reply_markup=keyboard.as_markup(), parse_mode="Markdown")
+    db = next(get_db())
+    user = db.query(User).filter(User.telegram_id == callback_query.from_user.id).first()
+    if user:
+        bot_info = await bot.get_me()
+        bot_username = bot_info.username
+        referral_link = f"https://t.me/{bot_username}?start={user.referral_code}"
+        message_text = (
+            f"💸 *Деньги за друзей*\n\n"
+            f"Приглашено: *{user.invited_count}*\n"
+            f"Баланс: *{user.total_earned}₽*\n\n"
+            f"Получай *10₽ за одного* приглашенного друга\n\n"
+            f"Ссылка для друга:\n"
+            f"[{referral_link}]({referral_link})"
+        )
+        
+        keyboard = InlineKeyboardBuilder()
+        keyboard.row(
+            types.InlineKeyboardButton(text="Вывести средства", callback_data="withdraw_funds")
+        )
+        keyboard.row(
+            types.InlineKeyboardButton(text="< Назад", callback_data="back_to_bonuses:get_bonuses:True")
+        )
+        
+        await callback_query.message.edit_text(message_text, reply_markup=keyboard.as_markup(), parse_mode="Markdown")
 
 @dp.callback_query(F.data == 'withdraw_funds')
 async def withdraw_funds_callback(callback_query: types.CallbackQuery):
     await callback_query.message.edit_text("Здесь можно вывести средства.", parse_mode="Markdown")
 
 @dp.callback_query(F.data.startswith('back_to_'))
-async def universal_back_callback(callback_query: types.CallbackQuery):
+async def universal_back_callback(callback_query: types.CallbackQuery, state: FSMContext):
     data = callback_query.data.split(':')
     function_name = data[1]
     delete_previous_message = data[2] == 'True'
     function = globals()[function_name]
     await edit_message_to_previous_state(callback_query, function, delete_previous_message)
+    await state.clear()
 
 @dp.message(F.text == "Каталог товаров 🛍️")
 async def show_catalog(message: types.Message):
