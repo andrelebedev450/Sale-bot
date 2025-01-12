@@ -15,12 +15,16 @@ async def edit_message_to_previous_state(callback_query: types.CallbackQuery, pr
             await bot.delete_message(callback_query.message.chat.id, callback_query.message.message_id - 1)
         except:
             pass
-    await previous_state_function(callback_query.message)
+    if 'user' in previous_state_function.__code__.co_varnames:
+        await previous_state_function(callback_query.message, callback_query.from_user)
+    else:
+        await previous_state_function(callback_query.message)
 
 @dp.message(F.text == "Мой профиль ⁠🪪")
-async def show_profile(message: types.Message):
+async def show_profile(message: types.Message, user: types.User = None):
     db = next(get_db())
-    user = db.query(User).filter(User.telegram_id == message.from_user.id).first()
+    user_id = user.id if user else message.from_user.id
+    user = db.query(User).filter(User.telegram_id == user_id).first()
     if user:
         await message.answer("🪪")
         
@@ -105,7 +109,7 @@ async def create_ticket_callback(callback_query: types.CallbackQuery):
         types.InlineKeyboardButton(text="Вопросы по товару", callback_data="issue_product")
     )
     keyboard.row(
-        types.InlineKeyboardButton(text="< Назад", callback_data="back_to_support:contact_support:False")
+        types.InlineKeyboardButton(text="< Назад", callback_data="back_to_support:contact_support:True")
     )
     
     await callback_query.message.edit_text(message_text, reply_markup=keyboard.as_markup(), parse_mode="Markdown")
@@ -216,6 +220,8 @@ async def replenish_balance_text(message: types.Message):
 
 @dp.callback_query(F.data == 'replenish')
 async def replenish_balance_callback(callback_query: types.CallbackQuery):
+    await bot.delete_message(callback_query.message.chat.id, callback_query.message.message_id - 1)
+    await callback_query.message.delete()
     await replenish_balance(callback_query.message)
 
 async def replenish_balance(message: types.Message):
